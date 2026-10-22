@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Run every switch of bin/terminal-protocol-controller against a stub theme and stub
+# omarchy, gsettings and plymouth commands, and check which theme steps each one calls.
+# It never touches the desktop, so it is safe to run at any time.
+#
+# Usage: tests/dry-run
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

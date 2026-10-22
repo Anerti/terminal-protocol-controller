@@ -27,6 +27,8 @@ omarchy-shell shell rescanPlugins
 omarchy plugin enable anerti.terminal-protocol-controller --section right
 ```
 
+The plugin was first published as `anerti.vault-tec`. If you installed that, remove it so you do not get two icons: `omarchy plugin remove anerti.vault-tec`.
+
 ## How it works
 
 `bin/terminal-protocol-controller` does the work, and `Panel.qml` only displays its state:

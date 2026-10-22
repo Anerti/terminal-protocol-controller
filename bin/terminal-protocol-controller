@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Backend for the Terminal Protocol Controller panel. It reports which parts of the Dark
+# Terminal Protocol theme are on, clones the theme when it is missing, and switches one
+# part at a time through the theme's own full-theme.sh steps, so that logic lives only there.
+# Switches and installs hold a lock, because every monitor's panel can start one.
+#
+# Usage: terminal-protocol-controller [status|install|set <bar|menu|cursor|crt|unlock|login> <on|off>]
+
 REPO=https://github.com/Anerti/omarchy-dark-terminal-protocol-theme.git
 THEME_DIR="${TERMINAL_PROTOCOL_THEME_DIR:-$HOME/.config/omarchy/themes/dark-terminal-protocol}"
 FULL="$THEME_DIR/full-theme.sh"
