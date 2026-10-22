@@ -1,9 +1,9 @@
 #!/bin/bash
 
 REPO=https://github.com/Anerti/omarchy-dark-terminal-protocol-theme.git
-THEME_DIR="${VAULT_TEC_THEME_DIR:-$HOME/.config/omarchy/themes/dark-terminal-protocol}"
+THEME_DIR="${TERMINAL_PROTOCOL_THEME_DIR:-$HOME/.config/omarchy/themes/dark-terminal-protocol}"
 FULL="$THEME_DIR/full-theme.sh"
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/vault-tec"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/terminal-protocol-controller"
 LOCK="$CACHE/control.lock"
 
 mkdir -p "$CACHE"
@@ -75,7 +75,7 @@ place_bar() {
 set_part() {
   local part="$1" want="$2" ids
   [[ $want == on || $want == off ]] || usage
-  [[ -f $FULL ]] || { echo "The theme is not installed: run vault-tec install" >&2; exit 1; }
+  [[ -f $FULL ]] || { echo "The theme is not installed: run terminal-protocol-controller install" >&2; exit 1; }
 
   exec 9>"$LOCK"
   flock 9
@@ -100,7 +100,7 @@ set_part() {
 }
 
 usage() {
-  echo "Usage: vault-tec [status|install|set <bar|menu|cursor|crt|unlock|login> <on|off>]" >&2
+  echo "Usage: terminal-protocol-controller [status|install|set <bar|menu|cursor|crt|unlock|login> <on|off>]" >&2
   exit 1
 }
 

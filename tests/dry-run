@@ -3,7 +3,7 @@
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-export VAULT_TEC_THEME_DIR="$TMP/theme" XDG_CACHE_HOME="$TMP/cache" PATH="$TMP/stubs:$PATH"
+export TERMINAL_PROTOCOL_THEME_DIR="$TMP/theme" XDG_CACHE_HOME="$TMP/cache" PATH="$TMP/stubs:$PATH"
 LOG="$TMP/steps"
 
 mkdir -p "$TMP/theme/bin" "$TMP/stubs" "$TMP/theme/plugins/"{anerti.menu,anerti.lock,anerti.clock,anerti.workspaces}
@@ -23,13 +23,13 @@ failed=0
 expect() {
   local args="$1" want="$2" got
   : >"$LOG"
-  "$ROOT/bin/vault-tec" $args
+  "$ROOT/bin/terminal-protocol-controller" $args
   got=$(paste -sd '|' "$LOG")
   if [[ $got == "$want" ]]; then echo "ok   $args"; else echo "FAIL $args: got '$got', want '$want'"; failed=1; fi
 }
 
-[[ $("$ROOT/bin/vault-tec" status) == '{"installed":true,"busy":false,"bar":true,"menu":false,"cursor":false,"crt":false,"unlock":true,"login":false}' ]] &&
-  echo "ok   status" || { echo "FAIL status: $("$ROOT/bin/vault-tec" status)"; failed=1; }
+[[ $("$ROOT/bin/terminal-protocol-controller" status) == '{"installed":true,"busy":false,"bar":true,"menu":false,"cursor":false,"crt":false,"unlock":true,"login":false}' ]] &&
+  echo "ok   status" || { echo "FAIL status: $("$ROOT/bin/terminal-protocol-controller" status)"; failed=1; }
 expect "set menu on" "install_plugins anerti.menu|set_plugins on anerti.menu|place_bar vault|restart_shell"
 expect "set bar off" "set_plugins off anerti.clock anerti.workspaces|enable_builtins anerti.clock anerti.workspaces|place_bar vault|restart_shell"
 expect "set unlock off" "set_plugins off anerti.lock|enable_builtins anerti.lock|restart_shell"
@@ -42,8 +42,8 @@ expect "set login off" "terminal $TMP/theme/bin/vault-tec-plymouth uninstall"
 printf '#!/bin/bash\necho clone >>%q; sleep 0.3; mkdir -p "$5"; touch "$5/full-theme.sh"\n' "$LOG" >"$TMP/stubs/git"
 chmod +x "$TMP/stubs/git"
 : >"$LOG"
-VAULT_TEC_THEME_DIR="$TMP/fresh" "$ROOT/bin/vault-tec" install &
-VAULT_TEC_THEME_DIR="$TMP/fresh" "$ROOT/bin/vault-tec" install
+TERMINAL_PROTOCOL_THEME_DIR="$TMP/fresh" "$ROOT/bin/terminal-protocol-controller" install &
+TERMINAL_PROTOCOL_THEME_DIR="$TMP/fresh" "$ROOT/bin/terminal-protocol-controller" install
 wait
 [[ $(paste -sd '|' "$LOG") == clone ]] && echo "ok   install twice" || { echo "FAIL install twice: $(paste -sd '|' "$LOG")"; failed=1; }
 exit "$failed"

@@ -6,10 +6,10 @@ import qs.Commons
 
 Panel {
   id: root
-  moduleName: "anerti.vault-tec"
-  ipcTarget: "anerti.vault-tec"
+  moduleName: "anerti.terminal-protocol-controller"
+  ipcTarget: "anerti.terminal-protocol-controller"
 
-  readonly property string backend: decodeURIComponent(Qt.resolvedUrl("bin/vault-tec").toString().replace("file://", ""))
+  readonly property string backend: decodeURIComponent(Qt.resolvedUrl("bin/terminal-protocol-controller").toString().replace("file://", ""))
   readonly property var parts: [
     { key: "bar", label: "Menu bar", description: "Vault-Tec wedge and Vault Boy status panels" },
     { key: "menu", label: "Menu", description: "Pip-Boy menu on Super + Space" },
@@ -29,7 +29,7 @@ Panel {
   readonly property string statusText: {
     if (downloading) return "Downloading the theme"
     if (!status.installed) return downloadFailed ? "Download failed, check your connection" : "Theme not installed"
-    return working ? "Applying changes" : "Standing by"
+    return working ? "Applying changes" : ""
   }
 
   implicitWidth: button.implicitWidth
@@ -103,7 +103,15 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰐼"
+    iconComponent: Component {
+      Item {
+        RadiationIcon {
+          anchors.centerIn: parent
+          iconSize: Style.bar.iconFont
+          color: button.foreground
+        }
+      }
+    }
     onPressed: root.toggle()
   }
 
@@ -136,14 +144,11 @@ Panel {
           width: parent.width
           spacing: Style.space(14)
 
-          Text {
+          RadiationIcon {
             id: heroIcon
-            textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
-            text: button.text
+            iconSize: Style.font.display
             color: root.bar.foreground
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.display
             opacity: root.status.installed ? 1.0 : 0.5
           }
 
@@ -153,7 +158,7 @@ Panel {
             spacing: Style.space(2)
 
             Text {
-              text: "Vault-Tec"
+              text: "Terminal Protocol Controller"
               color: root.bar.foreground
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.title
@@ -163,6 +168,7 @@ Panel {
             }
 
             Text {
+              visible: text !== ""
               textFormat: Text.PlainText
               text: root.statusText.toUpperCase()
               color: Qt.darker(root.bar.foreground, 1.4)
@@ -174,6 +180,12 @@ Panel {
               width: parent.width
             }
           }
+        }
+
+        PanelArt {
+          width: parent.width
+          source: Qt.resolvedUrl("assets/vault-boy-walking-neutral.gif")
+          playing: root.opened
         }
 
         PanelSeparator {
