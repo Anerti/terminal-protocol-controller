@@ -1,0 +1,112 @@
+#!/bin/bash
+
+REPO=https://github.com/Anerti/omarchy-dark-terminal-protocol-theme.git
+THEME_DIR="${VAULT_TEC_THEME_DIR:-$HOME/.config/omarchy/themes/dark-terminal-protocol}"
+FULL="$THEME_DIR/full-theme.sh"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/vault-tec"
+LOCK="$CACHE/control.lock"
+
+mkdir -p "$CACHE"
+
+run() {
+  bash "$FULL" __run "$@"
+}
+
+bar_ids() {
+  local dir id
+  for dir in "$THEME_DIR"/plugins/*/; do
+    id=$(basename "$dir")
+    [[ $id == anerti.menu || $id == anerti.lock ]] || echo "$id"
+  done
+}
+
+status() {
+  [[ -f $FULL ]] || { echo '{"installed":false,"busy":false}'; return; }
+  local busy=false
+  flock -n "$LOCK" true || busy=true
+  { omarchy plugin list --json 2>/dev/null || echo '[]'; } | jq -c \
+    --argjson busy "$busy" \
+    --argjson bar "$(jq -cn '$ARGS.positional' --args $(bar_ids))" \
+    --arg boot "$(plymouth-set-default-theme 2>/dev/null)" \
+    --arg crt "$("$THEME_DIR/bin/vault-tec-crt" status)" \
+    --arg cursor "$(gsettings get org.gnome.desktop.interface cursor-theme 2>/dev/null | tr -d "'")" '
+    . as $list
+    | def on($id): any($list[]; .id == $id and .enabled);
+    {
+      installed: true,
+      busy: $busy,
+      bar: ($bar | length > 0 and all(.[]; on(.))),
+      menu: on("anerti.menu"),
+      cursor: ($cursor == "VaultTec"),
+      crt: ($crt == "on"),
+      unlock: on("anerti.lock"),
+      login: ($boot == "vault-tec")
+    }'
+}
+
+install_theme() {
+  exec 9>"$LOCK"
+  flock 9
+  [[ -f $FULL ]] && return
+  mkdir -p "$(dirname "$THEME_DIR")"
+  git clone --depth 1 "$REPO" "$THEME_DIR"
+}
+
+toggle() {
+  local want="$1"
+  shift
+  if [[ $want == on ]]; then
+    run install_plugins "$@" && run set_plugins on "$@"
+  else
+    run set_plugins off "$@" && run enable_builtins "$@"
+  fi
+}
+
+place_bar() {
+  local now
+  now=$(status)
+  if [[ $(jq -r .bar <<<"$now") == true ]]; then
+    run place_bar vault
+  else
+    run place_bar builtin "$([[ $(jq -r .menu <<<"$now") == true ]] && echo on || echo off)"
+  fi
+}
+
+set_part() {
+  local part="$1" want="$2" ids
+  [[ $want == on || $want == off ]] || usage
+  [[ -f $FULL ]] || { echo "The theme is not installed: run vault-tec install" >&2; exit 1; }
+
+  exec 9>"$LOCK"
+  flock 9
+
+  case "$part" in
+    bar) mapfile -t ids < <(bar_ids); toggle "$want" "${ids[@]}" && place_bar ;;
+    menu) toggle "$want" anerti.menu && place_bar ;;
+    unlock) toggle "$want" anerti.lock ;;
+    cursor)
+      if [[ $want == on ]]; then run set_cursors; else "$THEME_DIR/bin/vault-tec-cursor" uninstall; fi
+      return
+      ;;
+    crt) "$THEME_DIR/bin/vault-tec-crt" "$want"; return ;;
+    login)
+      omarchy-launch-floating-terminal-with-presentation \
+        "$(printf '%q' "$THEME_DIR/bin/vault-tec-plymouth") $([[ $want == on ]] && echo install || echo uninstall)"
+      return
+      ;;
+    *) usage ;;
+  esac || return
+  run restart_shell
+}
+
+usage() {
+  echo "Usage: vault-tec [status|install|set <bar|menu|cursor|crt|unlock|login> <on|off>]" >&2
+  exit 1
+}
+
+case "${1:-status}" in
+  status) status ;;
+  install) install_theme ;;
+  set) set_part "$2" "$3" ;;
+  *) usage ;;
+esac

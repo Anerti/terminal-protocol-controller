@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "anerti.vault-tec",
+  "name": "Vault-Tec Control",
+  "version": "1.0.0",
+  "author": "Anerti",
+  "description": "Switch each part of the Dark Terminal Protocol theme on or off, and download the theme when it is missing",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Vault-Tec Control",
+    "description": "Switches for the Vault-Tec bar, menu, CRT effect, lock and boot screens",
+    "category": "Appearance",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
