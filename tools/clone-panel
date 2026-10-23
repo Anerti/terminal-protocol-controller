@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# Copy a built-in Omarchy shell plugin into plugins/anerti.<name> as a clone,
+# the same way `omarchy plugin clone` does (ids inside the code stay, so IPC
+# keeps routing through clonedFrom), and add the shared PanelArt component.
+# Usage: tools/clone-panel <source-id> <display-name>
+
+set -euo pipefail
+
+if (($# != 2)); then
+  echo "Usage: tools/clone-panel <source-id> <display-name>" >&2
+  exit 1
+fi
+
+source_id="$1"
+name="$2"
+root="$(cd "$(dirname "$0")/.." && pwd)"
+source_dir=$(omarchy-plugin-catalog | jq -r --arg id "$source_id" '.[] | select(.firstParty and .id == $id) | .sourceDir')
+[[ -n $source_dir ]] || { echo "unknown built-in plugin: $source_id" >&2; exit 1; }
+[[ -f $source_dir/manifest.json ]] || { echo "$source_id has no plugin folder of its own (a bar widget?)" >&2; exit 1; }
+
+target="$root/plugins/anerti.${source_id#omarchy.}"
+[[ ! -e $target ]] || { echo "$target already exists" >&2; exit 1; }
+
+mkdir -p "$target/assets"
+cp -aL "$source_dir/." "$target/"
+chmod -R u+w "$target"
+jq --arg id "anerti.${source_id#omarchy.}" --arg name "$name" --arg src "$source_id" '
+  .id = $id | .name = $name
+  | if (.barWidget | type) == "object" then .barWidget.displayName = $name else . end
+  | .omarchy = ((if (.omarchy | type) == "object" then .omarchy else {} end) + {clonedFrom: $src})
+  | del(.omarchy.clonePaths)
+' "$target/manifest.json" > "$target/manifest.json.tmp"
+mv "$target/manifest.json.tmp" "$target/manifest.json"
+cp "$root/plugins/anerti.network/PanelArt.qml" "$target/"
+echo "$target"

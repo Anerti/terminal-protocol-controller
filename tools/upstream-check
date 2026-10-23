@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# Show what changed upstream in the built-ins the plugins are cloned from, since the
+# Omarchy release they were last synced with (recorded in plugins/omarchy-version). The
+# old files come from that release's package in the pacman cache, the new ones from
+# /usr/share/omarchy, so a clone that needs porting shows up before it breaks, as the
+# lock did with 4.0.6. Once the clones are synced, --accept records the installed release.
+# Usage: tools/upstream-check [--accept]
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+RECORD=$ROOT/plugins/omarchy-version
+CACHE=/var/cache/pacman/pkg
+
+installed=$(pacman -Q omarchy | cut -d' ' -f2)
+
+# A plugin with its own folder is compared whole. A bar widget shares its folder with
+# the other widgets, so only its manifest and entry points are.
+upstream_files() {
+  omarchy-plugin-catalog | jq -r --arg id "$1" '
+    .[] | select(.firstParty and .id == $id) | .sourceDir as $dir
+    | if (.manifestPath | endswith("/manifest.json")) then $dir
+      else .manifestPath, (.entryPoints[] | "\($dir)/\(.)") end'
+}
+
+check() {
+  local synced pkg tmp manifest id from path files changed=0
+  synced=$(cat "$RECORD")
+  if [[ $synced == "$installed" ]]; then
+    echo "The clones are synced with the installed Omarchy ($installed)."
+    return
+  fi
+  pkg=$(compgen -G "$CACHE/omarchy-$synced-*.pkg.tar.zst" | head -1 || true)
+  if [[ -z $pkg ]]; then
+    echo "Omarchy $synced is no longer in $CACHE: compare the clones by hand, then run --accept" >&2
+    exit 1
+  fi
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  tar -xf "$pkg" -C "$tmp" usr/share/omarchy/shell
+
+  echo "Upstream changes from Omarchy $synced to $installed:"
+  for manifest in "$ROOT"/plugins/*/manifest.json; do
+    id=$(jq -r .id "$manifest")
+    from=$(jq -r '.omarchy.clonedFrom // ""' "$manifest")
+    [[ -n $from ]] || continue
+    files=$(upstream_files "$from")
+    if [[ -z $files ]]; then
+      echo "$id: $from is no longer a built-in"
+      changed=1
+      continue
+    fi
+    while read -r path; do
+      if ! diff -ruN "$tmp$path" "$path" >"$tmp/diff"; then
+        echo
+        echo "== $id (from $from): ${path#/usr/share/omarchy/}"
+        sed "s|$tmp||" "$tmp/diff"
+        changed=1
+      fi
+    done <<<"$files"
+  done
+
+  if ((changed)); then
+    echo
+    echo "Port what applies to the clones, then run tools/upstream-check --accept"
+    exit 1
+  fi
+  echo "None in the cloned built-ins."
+}
+
+accept() {
+  echo "$installed" >"$RECORD"
+  echo "The clones are recorded as synced with Omarchy $installed."
+}
+
+case "${1:-}" in
+  "") check ;;
+  --accept) accept ;;
+  *)
+    echo "Usage: tools/upstream-check [--accept]" >&2
+    exit 1
+    ;;
+esac

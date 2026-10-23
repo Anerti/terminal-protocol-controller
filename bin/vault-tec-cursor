@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# Usage: vault-tec-cursor [install|uninstall]   (default: install)
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ICONS="$HOME/.local/share/icons/VaultTec"
+HOOKS="$HOME/.config/omarchy/hooks"
+
+install() {
+  mkdir -p "$(dirname "$ICONS")"
+  rsync -a --delete "$ROOT/cursors/VaultTec/" "$ICONS/"
+  omarchy hook install theme-set "$ROOT/hooks/vault-tec-cursor"
+  omarchy hook install post-boot "$ROOT/hooks/vault-tec-cursor"
+  "$ROOT/hooks/vault-tec-cursor"
+}
+
+uninstall() {
+  "$ROOT/hooks/vault-tec-cursor" none
+  rm -f "$HOOKS/theme-set.d/vault-tec-cursor" "$HOOKS/post-boot.d/vault-tec-cursor"
+  rm -rf "$ICONS"
+}
+
+case "${1:-install}" in
+  install) install ;;
+  uninstall) uninstall ;;
+  *)
+    echo "Usage: vault-tec-cursor [install|uninstall]" >&2
+    exit 1
+    ;;
+esac

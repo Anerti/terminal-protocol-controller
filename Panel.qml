@@ -23,12 +23,13 @@ Panel {
   property var pending: ({})
   property bool downloading: false
   property bool downloadFailed: false
+  property real installStarted: 0
   property int cursor: -1
 
   readonly property bool working: status.busy || Object.keys(pending).length > 0
   readonly property string statusText: {
-    if (downloading) return "Downloading the theme"
-    if (!status.installed) return downloadFailed ? "Download failed, check your connection" : "Theme not installed"
+    if (downloading) return status.installed ? "Updating the plugins" : "Downloading the theme and plugins"
+    if (!status.installed) return downloadFailed ? "Download failed, check your connection" : "Theme or plugins not installed"
     return working ? "Applying changes" : ""
   }
 
@@ -53,10 +54,20 @@ Panel {
     }
     pending = p
     status = next
-    if (!next.installed && !downloading && !downloadFailed) {
-      downloading = true
-      installProc.running = true
+    if (downloading) {
+      if (!next.busy && now - installStarted > 3000) {
+        downloading = false
+        downloadFailed = !next.installed
+      }
+    } else if (!next.installed && !downloadFailed) {
+      install()
     }
+  }
+
+  function install() {
+    downloading = true
+    installStarted = Date.now()
+    Quickshell.execDetached(["setsid", "-f", "bash", backend, "install"])
   }
 
   function flip(key) {
@@ -74,7 +85,10 @@ Panel {
     refresh()
   }
 
-  Component.onCompleted: refresh()
+  Component.onCompleted: {
+    install()
+    refresh()
+  }
 
   Process {
     id: statusProc
@@ -82,20 +96,10 @@ Panel {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.update(text) }
   }
 
-  Process {
-    id: installProc
-    command: ["bash", root.backend, "install"]
-    onExited: function(exitCode) {
-      root.downloading = false
-      root.downloadFailed = exitCode !== 0
-      root.refresh()
-    }
-  }
-
   Timer {
     interval: 1500
     repeat: true
-    running: root.opened || root.working
+    running: root.opened || root.working || root.downloading
     onTriggered: root.refresh()
   }
 

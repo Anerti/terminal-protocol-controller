@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Build the lock screen's PLEASE STAND BY test card (anerti.lock) from the green original
+# next to this script. The card ships in greyscale, with the theme's foreground green
+# (#2cae2e) brought up to white, so the lock screen can tint it with the active theme's
+# foreground and still match the original under this theme. Needs magick.
+# Usage: tools/build-standby
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+src="$ROOT/tools/please-stand-by.jpg"
+out="$ROOT/plugins/anerti.lock/assets/please-stand-by.jpg"
+
+# The card is one green at varying brightness, so its green channel alone carries the
+# picture; 255/174 lifts #2cae2e's green to full white.
+magick "$src" -channel G -separate +channel -evaluate multiply "$(awk 'BEGIN { print 255 / 174 }')" \
+  -colorspace Gray -quality 93 "$out"
+echo "$out"

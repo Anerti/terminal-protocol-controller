@@ -1,42 +1,52 @@
 #!/bin/bash
 
-# Backend for the Terminal Protocol Controller panel. It reports which parts of the Dark
-# Terminal Protocol theme are on, clones the theme when it is missing, and switches one
-# part at a time through the theme's own full-theme.sh steps, so that logic lives only there.
-# Switches and installs hold a lock, because every monitor's panel can start one.
-#
 # Usage: terminal-protocol-controller [status|install|set <bar|menu|cursor|crt|unlock|login> <on|off>]
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO=https://github.com/Anerti/omarchy-dark-terminal-protocol-theme.git
 THEME_DIR="${TERMINAL_PROTOCOL_THEME_DIR:-$HOME/.config/omarchy/themes/dark-terminal-protocol}"
-FULL="$THEME_DIR/full-theme.sh"
+PLUGINS="$HOME/.config/omarchy/plugins"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/terminal-protocol-controller"
 LOCK="$CACHE/control.lock"
+LOGIN_LOCK="$CACHE/login.lock"
 
 mkdir -p "$CACHE"
 
 run() {
-  bash "$FULL" __run "$@"
+  "$ROOT/bin/vault-tec-plugins" "$@" >>"$CACHE/control.log" 2>&1
+}
+
+installed() {
+  local dir
+  [[ -f $THEME_DIR/colors.toml ]] || return
+  for dir in "$ROOT"/plugins/*/; do
+    [[ -d $PLUGINS/$(basename "$dir") ]] || return
+  done
 }
 
 bar_ids() {
   local dir id
-  for dir in "$THEME_DIR"/plugins/*/; do
+  for dir in "$ROOT"/plugins/*/; do
     id=$(basename "$dir")
     [[ $id == anerti.menu || $id == anerti.lock ]] || echo "$id"
   done
 }
 
+cursor_installed() {
+  local hooks="$HOME/.config/omarchy/hooks"
+  [[ -d $HOME/.local/share/icons/VaultTec && -f $hooks/theme-set.d/vault-tec-cursor && -f $hooks/post-boot.d/vault-tec-cursor ]]
+}
+
 status() {
-  [[ -f $FULL ]] || { echo '{"installed":false,"busy":false}'; return; }
   local busy=false
   flock -n "$LOCK" true || busy=true
+  installed || { echo "{\"installed\":false,\"busy\":$busy}"; return; }
   { omarchy plugin list --json 2>/dev/null || echo '[]'; } | jq -c \
     --argjson busy "$busy" \
     --argjson bar "$(jq -cn '$ARGS.positional' --args $(bar_ids))" \
     --arg boot "$(plymouth-set-default-theme 2>/dev/null)" \
-    --arg crt "$("$THEME_DIR/bin/vault-tec-crt" status)" \
-    --arg cursor "$(gsettings get org.gnome.desktop.interface cursor-theme 2>/dev/null | tr -d "'")" '
+    --arg crt "$("$ROOT/bin/vault-tec-crt" status)" \
+    --argjson cursor "$(cursor_installed && echo true || echo false)" '
     . as $list
     | def on($id): any($list[]; .id == $id and .enabled);
     {
@@ -44,28 +54,34 @@ status() {
       busy: $busy,
       bar: ($bar | length > 0 and all(.[]; on(.))),
       menu: on("anerti.menu"),
-      cursor: ($cursor == "VaultTec"),
+      cursor: $cursor,
       crt: ($crt == "on"),
       unlock: on("anerti.lock"),
       login: ($boot == "vault-tec")
     }'
 }
 
-install_theme() {
+install() {
   exec 9>"$LOCK"
   flock 9
-  [[ -f $FULL ]] && return
-  mkdir -p "$(dirname "$THEME_DIR")"
-  git clone --depth 1 "$REPO" "$THEME_DIR"
+  if [[ ! -f $THEME_DIR/colors.toml ]]; then
+    local part="$THEME_DIR.part"
+    rm -rf "$part"
+    mkdir -p "$(dirname "$THEME_DIR")"
+    git clone --depth 1 "$REPO" "$part" || { rm -rf "$part"; exit 1; }
+    [[ -e $THEME_DIR ]] && mv "$THEME_DIR" "$THEME_DIR.broken-$(date +%s)"
+    mv "$part" "$THEME_DIR" || exit 1
+  fi
+  run sync
 }
 
 toggle() {
   local want="$1"
   shift
   if [[ $want == on ]]; then
-    run install_plugins "$@" && run set_plugins on "$@"
+    run install "$@" && run enable "$@"
   else
-    run set_plugins off "$@" && run enable_builtins "$@"
+    run disable "$@"
   fi
 }
 
@@ -73,16 +89,16 @@ place_bar() {
   local now
   now=$(status)
   if [[ $(jq -r .bar <<<"$now") == true ]]; then
-    run place_bar vault
+    run place-bar vault
   else
-    run place_bar builtin "$([[ $(jq -r .menu <<<"$now") == true ]] && echo on || echo off)"
+    run place-bar builtin "$([[ $(jq -r .menu <<<"$now") == true ]] && echo on || echo off)"
   fi
 }
 
 set_part() {
   local part="$1" want="$2" ids
   [[ $want == on || $want == off ]] || usage
-  [[ -f $FULL ]] || { echo "The theme is not installed: run terminal-protocol-controller install" >&2; exit 1; }
+  installed || { echo "The theme or its plugins are not installed: run terminal-protocol-controller install" >&2; exit 1; }
 
   exec 9>"$LOCK"
   flock 9
@@ -92,18 +108,24 @@ set_part() {
     menu) toggle "$want" anerti.menu && place_bar ;;
     unlock) toggle "$want" anerti.lock ;;
     cursor)
-      if [[ $want == on ]]; then run set_cursors; else "$THEME_DIR/bin/vault-tec-cursor" uninstall; fi
+      "$ROOT/bin/vault-tec-cursor" "$([[ $want == on ]] && echo install || echo uninstall)"
       return
       ;;
-    crt) "$THEME_DIR/bin/vault-tec-crt" "$want"; return ;;
+    crt) "$ROOT/bin/vault-tec-crt" "$want"; return ;;
     login)
-      omarchy-launch-floating-terminal-with-presentation \
-        "$(printf '%q' "$THEME_DIR/bin/vault-tec-plymouth") $([[ $want == on ]] && echo install || echo uninstall)"
+      local cmd
+      printf -v cmd '%q ' flock "$LOGIN_LOCK" "$ROOT/bin/vault-tec-plymouth" "$([[ $want == on ]] && echo install || echo uninstall)"
+      omarchy-launch-floating-terminal-with-presentation "${cmd% }"
+      for _ in {1..60}; do
+        flock -n "$LOGIN_LOCK" true || break
+        sleep 0.5
+      done
+      flock "$LOGIN_LOCK" true
       return
       ;;
     *) usage ;;
   esac || return
-  run restart_shell
+  run restart
 }
 
 usage() {
@@ -113,7 +135,7 @@ usage() {
 
 case "${1:-status}" in
   status) status ;;
-  install) install_theme ;;
+  install) install ;;
   set) set_part "$2" "$3" ;;
   *) usage ;;
 esac

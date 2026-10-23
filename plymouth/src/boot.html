@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BOOT — Vault-Tec OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/fallout.css">
+<style>
+  body { overflow: hidden; }
+
+  .boot-main {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 24px;
+    background:
+      radial-gradient(60% 55% at 50% 44%, rgba(44, 174, 46,0.10), rgba(0,0,0,0) 62%),
+      radial-gradient(130% 110% at 50% 50%, #0b2416 0%, #06170d 50%, #020a05 100%);
+  }
+
+  .stage { display: flex; flex-direction: column; align-items: center; }
+  .stage[hidden] { display: none; }
+  /* The lock screen (anerti.lock's LockView.qml) at 1080p: a terminal column 1100px wide,
+     7vh from the top, its pieces 28px apart: the title, the emblem with 14px above and
+     below, the banner, a rule, then the prompt over its status line. */
+  .stage-lock {
+    position: fixed;
+    top: max(40px, 7vh);
+    left: 50%;
+    width: min(calc(100vw - 128px), 1100px);
+    transform: translateX(-50%);
+    align-items: stretch;
+    gap: 28px;
+  }
+  .locking .termlink, .locking .robco { visibility: hidden; }
+
+  /* TermText: 20px with .1em tracking, padded in front by the same so centred lines
+     centre, and a soft glow in the text's own colour. */
+  .term-text {
+    color: var(--fg);
+    font-size: 20px;
+    line-height: normal;
+    letter-spacing: .1em;
+    padding-left: .1em;
+    text-align: center;
+    white-space: pre;
+    text-shadow: 0 0 8px rgba(44, 174, 46, 0.45);
+  }
+  .emblem-slot {
+    position: relative;
+    align-self: center;
+    width: min(70%, 520px);
+    padding: 14px 0;
+  }
+  .emblem {
+    display: block;
+    width: 100%;
+    height: auto;
+    opacity: .92;
+    filter:
+      drop-shadow(0 0 5px rgba(44, 174, 46, 0.6))
+      drop-shadow(0 0 32px rgba(44, 174, 46, 0.4));
+    animation: holo 4.5s ease-in-out infinite;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  @keyframes holo {
+    0%, 100% { opacity: 0.92; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.012); }
+  }
+  /* The bright line that draws the emblem in from the top, here at the end of its sweep. */
+  .reveal-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12px;
+    height: 2px;
+    background: var(--fg);
+    box-shadow: 0 0 8px rgba(44, 174, 46, 0.8);
+    visibility: hidden;
+  }
+  .banner { display: flex; flex-direction: column; gap: 4px; }
+  .rule {
+    height: 2px;
+    background: var(--fg);
+    box-shadow: 0 0 8px rgba(44, 174, 46, 0.6);
+  }
+  .passphrase { display: flex; flex-direction: column; gap: 14px; }
+  .prompt-row { position: relative; display: flex; align-items: center; overflow: hidden; }
+  .prompt-row .term-text { font-size: 26px; text-align: left; }
+  .stars { padding-left: 0 !important; }
+  .block {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 26px;
+    background: var(--fg);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .block.on { animation: blink 1s steps(1) infinite; }
+  .passphrase input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+  }
+  .status { min-height: 23px; text-align: left; }
+  .status.denied { color: var(--urgent); text-shadow: 0 0 8px rgba(255, 90, 60, 0.45); }
+  .status.note { color: var(--fg-soft); text-shadow: 0 0 8px rgba(124, 148, 128, 0.45); }
+  .termlink {
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    color: var(--fg);
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-shadow: var(--glow-soft);
+    opacity: .92;
+    white-space: nowrap;
+  }
+  .robco {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    color: var(--fg);
+    font-size: .74rem;
+    letter-spacing: .24em;
+    line-height: 1.8;
+    text-shadow: var(--glow-soft);
+    opacity: .92;
+    white-space: nowrap;
+  }
+
+  .about-body { display: flex; align-items: center; gap: 26px; }
+  .fait {
+    display: flex;
+    flex-direction: column;
+    font-family: "JetBrainsMono Nerd Font", "Share Tech Mono", ui-monospace, monospace;
+    font-size: .62rem;
+    line-height: 1.3;
+    letter-spacing: 0;
+  }
+  .fait .row { white-space: pre; }
+  .about-logo .row { color: var(--fg); text-shadow: var(--glow); opacity: 0; transition: opacity .22s ease; }
+  .about-modules .row { color: var(--fg); }
+  .about-modules .bx { color: var(--fg-faint); }
+  .about-modules .sec { color: var(--accent); }
+  .about-modules .gi { color: var(--fg); }
+  .about-logo .row.on { opacity: 1; }
+  .about-modules .row { opacity: 0; transform: translateX(-10px); transition: opacity .22s ease, transform .22s ease; }
+  .about-modules .row.on { opacity: 1; transform: none; }
+
+  .stage-init { gap: 20px; }
+  .stage-init .barline { margin-top: 36px; }
+  .init-art {
+    width: 300px;
+    height: 390px;
+  }
+  .init-art img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 41% 50%;
+    filter: url(#phosphor) drop-shadow(0 0 10px rgba(44, 174, 46, 0.35));
+  }
+  .barline { position: relative; display: flex; align-items: center; justify-content: center; }
+  .bar {
+    position: relative;
+    width: min(420px, 74vw);
+    height: 20px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: rgba(4,18,10,0.72);
+    box-shadow: inset 0 0 14px rgba(0,0,0,0.7);
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    background: linear-gradient(90deg, rgba(44, 174, 46,0.45), var(--fg));
+    box-shadow: 0 0 16px rgba(44, 174, 46,0.55);
+    transition: width .3s linear;
+  }
+  .bar-fill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(90deg, rgba(2,10,5,0.85) 0 1px, rgba(0,0,0,0) 1px 10px);
+  }
+  .bar-pct {
+    position: absolute;
+    left: calc(100% + 14px);
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 3.4em;
+    text-align: right;
+    color: var(--fg);
+    font-size: .86rem;
+    letter-spacing: .1em;
+  }
+  .init-status {
+    min-height: 1.2em;
+    color: var(--fg-dim);
+    font-size: .76rem;
+    letter-spacing: .2em;
+    text-indent: .2em;
+  }
+
+  .no-anim .about-logo .row,
+  .no-anim .about-modules .row { transition: none; }
+
+  @media (max-width: 820px) {
+    .about-body { flex-direction: column; align-items: center; gap: 18px; }
+  }
+  @media (max-height: 760px) {
+    .fait { font-size: .54rem; }
+    .init-art { width: 250px; height: 325px; }
+  }
+  @media (max-width: 1100px) {
+    .fait { font-size: .5rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .emblem { animation: none; }
+    .block.on { animation: none; opacity: 1; }
+  }
+</style>
+</head>
+<body class="locking">
+<svg class="defs" style="position:absolute;width:0;height:0" aria-hidden="true">
+  <!-- The panels' Vault Boy tint (MultiEffect colorization): luminance times #2cae2e. -->
+  <filter id="phosphor" color-interpolation-filters="sRGB">
+    <feColorMatrix type="matrix" values="0.0516 0.1013 0.0197 0 0  0.2040 0.4005 0.0778 0 0  0.0539 0.1059 0.0206 0 0  0 0 0 1 0"/>
+  </filter>
+</svg>
+<header class="termlink">OMARCHY (TM) TERMINAL PROTOCOL</header>
+<main class="boot-main">
+
+  <section class="stage stage-lock" id="stage-lock">
+    <div class="term-text title">OMARCHY (TM) TERMINAL PROTOCOL</div>
+    <div class="emblem-slot">
+      <img class="emblem" src="assets/img/vaulttec.svg" alt="Vault-Tec wings around the Omarchy mark"
+           onerror="this.onerror=null;this.src='assets/img/vaulttec-fallback.svg'">
+      <span class="reveal-line" aria-hidden="true"></span>
+    </div>
+    <div class="banner">
+      <div class="term-text">OMARCHY VERSION 4.0.6 | KERNEL VERSION 7.2.8</div>
+      <div class="term-text">COPYRIGHT 2025 - 2026 OMARCHY</div>
+      <div class="term-text">- OMARCHY -</div>
+    </div>
+    <div class="rule"></div>
+    <form class="passphrase" id="lockform" autocomplete="off">
+      <div class="prompt-row">
+        <span class="term-text prompt-label">&gt; ENTER PASSWORD: </span><span class="term-text stars" id="stars"></span><span class="block" id="block"></span>
+        <input id="pw" type="password" aria-label="Password" autofocus>
+      </div>
+      <div class="term-text status" id="status" aria-live="polite"></div>
+    </form>
+  </section>
+
+  <section class="stage stage-about" id="stage-about" hidden>
+    <div class="about-body">
+      <div class="fait about-logo" id="aboutlogo" aria-hidden="true">
+  <div class="row">                                                &#x2584;&#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;&#x2584;</div>
+  <div class="row">                                            &#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;</div>
+  <div class="row">                                         &#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;</div>
+  <div class="row">                        &#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;&#x2580;      &#x2580;&#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;</div>
+  <div class="row">                    &#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;                &#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;</div>
+  <div class="row">                   &#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;                      &#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;</div>
+  <div class="row">                      &#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;        &#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;        &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;</div>
+  <div class="row">                                   &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;       &#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;       &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</div>
+  <div class="row">   &#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;      &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;      &#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;</div>
+  <div class="row">&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;       &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;       &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;</div>
+  <div class="row">&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;       &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;       &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;</div>
+  <div class="row">    &#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;      &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;      &#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;</div>
+  <div class="row">                                   &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;       &#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;       &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</div>
+  <div class="row">                      &#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;        &#x2580;&#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;&#x2580;        &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;&#x2584;</div>
+  <div class="row">                   &#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;                      &#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;</div>
+  <div class="row">                    &#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;                &#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;</div>
+  <div class="row">                         &#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2584;&#x2584;&#x2584;      &#x2584;&#x2584;&#x2584;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;</div>
+  <div class="row">                                         &#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;</div>
+  <div class="row">                                            &#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;</div>
+  <div class="row">                                                &#x2580;&#x2580;&#x2580;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2580;&#x2580;&#x2580;</div>
+      </div>
+      <div class="fait about-modules" id="modules" aria-hidden="true">
+      <div class="row bx-top"><span class="bx">&#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;</span><span class="sec">Hardware</span><span class="bx">&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;</span></div>
+      <div class="row"><span class="bx"></span><span class="gi">&#xF109;</span><span class="tx"> PC: Victus by HP Gaming Laptop 15-fb0xxx</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF4BC;</span><span class="tx">: AMD Ryzen 5 5600H (12) @ 4.28 GHz</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xE266;</span><span class="tx">: AMD Radeon RX 6500M</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xE266;</span><span class="tx">: Radeon Vega Series / Radeon Vega Mobile Series</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF1104;</span><span class="tx">: 2160x1440 in 22", 60 Hz [External]</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF1104;</span><span class="tx">: 1920x1080 in 15", 60 Hz [Built-in]</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF02CA;</span><span class="tx">: 78.47 GiB / 234.91 GiB (33%) - btrfs</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xEFC5;</span><span class="tx">: 7.80 GiB / 14.95 GiB (52%)</span></div>
+      <div class="row"><span class="bx">&#x2514; &#x2514;</span><span class="gi">&#xF04E1;</span><span class="tx">: 0 B / 29.90 GiB (0%)</span></div>
+      <div class="row bx-bot">&#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;</div>
+      <div class="row spacer">&#xA0;</div>
+      <div class="row bx-top"><span class="bx">&#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;</span><span class="sec">Software</span><span class="bx">&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;</span></div>
+      <div class="row"><span class="bx"></span><span class="gi">&#xE900;</span><span class="tx"> OS: Omarchy 4.0.5-1</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF052B;</span><span class="tx">: stable</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF013;</span><span class="tx">: Linux 7.2.8-9-omarchy</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF488;</span><span class="tx">: Hyprland 0.56.2 (Wayland)</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF489;</span><span class="tx">: opencode.exe</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF03D6;</span><span class="tx">: 1011 (pacman)</span></div>
+      <div class="row"><span class="bx">&#x2502; &#x251C;</span><span class="gi">&#xF0E0C;</span><span class="tx">: Osaka Jade &#x25CF;&#x25CF;&#x25CF;&#x25CF;&#x25CF;&#x25CF;&#x25CF;&#x25CF;</span></div>
+      <div class="row bx-bot">&#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;</div>
+      <div class="row spacer">&#xA0;</div>
+      <div class="row bx-top"><span class="bx">&#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;</span><span class="sec">Age / Uptime / Update</span><span class="bx">&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;</span></div>
+      <div class="row"><span class="bx"></span><span class="gi">&#xF199F;</span><span class="tx"> OS Age: 57 days</span></div>
+      <div class="row"><span class="bx"></span><span class="gi">&#xF1AD0;</span><span class="tx"> Uptime: 1 min</span></div>
+      <div class="row"><span class="bx"></span><span class="gi">&#xEB29;</span><span class="tx"> Update: Sunday, October 18 2026 at 15:20</span></div>
+      <div class="row bx-bot">&#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage stage-init" id="stage-init" hidden>
+    <div class="init-art">
+      <img src="assets/img/vault-boy-standing-hand-on-hip.gif" alt="Vault Boy standing with a hand on his hip">
+    </div>
+    <div class="barline">
+      <div class="bar"><div class="bar-fill" id="barfill"></div></div>
+      <span class="bar-pct" id="barpct" aria-live="polite">0%</span>
+    </div>
+    <div class="init-status" id="initstatus">INITIALIZING SYSTEM.</div>
+  </section>
+
+</main>
+
+<footer class="robco">
+  <div>OMARCHY UNIFIED OPERATING SYSTEM</div>
+  <div>COPYRIGHT 2025 - 2026 OMARCHY</div>
+</footer>
+
+<a class="btn fx-home" href="index.html">Overview</a>
+
+<script src="assets/js/crt.js"></script>
+<script>
+  var form = document.getElementById("lockform");
+  var input = document.getElementById("pw");
+  var block = document.getElementById("block");
+  var starsEl = document.getElementById("stars");
+  var statusEl = document.getElementById("status");
+  var lockStage = document.getElementById("stage-lock");
+  var aboutStage = document.getElementById("stage-about");
+  var initStage = document.getElementById("stage-init");
+  var logoEl = document.getElementById("aboutlogo");
+  var rowsEl = document.getElementById("modules");
+  var fillEl = document.getElementById("barfill");
+  var pctEl = document.getElementById("barpct");
+  var initStatus = document.getElementById("initstatus");
+  var rows = Array.prototype.slice.call(rowsEl.children);
+  var logoRows = Array.prototype.slice.call(logoEl.children);
+  var autoNav = true;
+  var REVEAL_MS = 5000;
+  var dotsTimer = 0;
+
+  function updateCursor() {
+    starsEl.textContent = new Array(input.value.length + 1).join("*");
+  }
+
+  function setCursor(on) {
+    block.classList.toggle("on", on);
+  }
+
+  input.addEventListener("input", function () {
+    updateCursor();
+    if (input.value) setStatus("", "");
+  });
+  input.addEventListener("focus", function () {
+    updateCursor();
+    setCursor(true);
+  });
+  input.addEventListener("blur", function () { setCursor(false); });
+
+  function setStatus(text, tone) {
+    statusEl.textContent = text;
+    statusEl.className = "term-text status" + (tone ? " " + tone : "");
+  }
+
+  function showStage(name) {
+    if (name !== "init") clearInterval(dotsTimer);
+    document.body.classList.toggle("locking", name === "lock");
+    lockStage.hidden = name !== "lock";
+    aboutStage.hidden = name !== "about";
+    initStage.hidden = name !== "init";
+  }
+
+  function revealProfile(done) {
+    showStage("about");
+    var step = Math.max(60, Math.round(REVEAL_MS / rows.length));
+    var logoStep = Math.max(60, Math.round(step * rows.length / logoRows.length));
+    logoRows.forEach(function (row, i) {
+      setTimeout(function () { row.classList.add("on"); }, 320 + i * logoStep);
+    });
+    rows.forEach(function (row, i) {
+      setTimeout(function () { row.classList.add("on"); }, 320 + i * step);
+    });
+    var span = 320 + (rows.length - 1) * step;
+    if (done) setTimeout(done, span + 2500);
+  }
+
+  var INIT_STEPS = [
+    { pct: 7, ms: 600 },
+    { pct: 19, ms: 900 },
+    { pct: 32, ms: 800 },
+    { pct: 45, ms: 700 },
+    { pct: 58, ms: 900 },
+    { pct: 71, ms: 800 },
+    { pct: 84, ms: 700 },
+    { pct: 94, ms: 600 },
+    { pct: 100, ms: 500 }
+  ];
+
+  function renderInit(pct) {
+    fillEl.style.width = pct + "%";
+    pctEl.textContent = pct + "%";
+  }
+
+  function startDots() {
+    clearInterval(dotsTimer);
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      initStatus.textContent = "INITIALIZING SYSTEM...";
+      return;
+    }
+    var n = 1;
+    dotsTimer = setInterval(function () {
+      n = n % 3 + 1;
+      initStatus.textContent = "INITIALIZING SYSTEM" + new Array(n + 1).join(".");
+    }, 420);
+  }
+
+  function runInit(done) {
+    showStage("init");
+    startDots();
+    var t = 0;
+    INIT_STEPS.forEach(function (step) {
+      t += step.ms;
+      setTimeout(function () { renderInit(step.pct); }, t);
+    });
+    setTimeout(done, t + 700);
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var value = input.value.trim().toLowerCase();
+    if (!value) return;
+    input.value = "";
+    updateCursor();
+    setCursor(false);
+    setStatus("> VERIFYING...", "");
+    setTimeout(function () {
+      if (value === "omarchy" || value === "password") {
+        runInit(function () {
+          revealProfile(function () {
+            if (autoNav) window.location.href = "desktop.html";
+          });
+        });
+      } else {
+        setStatus("> ACCESS DENIED", "denied");
+        setCursor(document.activeElement === input);
+      }
+    }, 700);
+  });
+
+  (function preset() {
+    var stage = new URLSearchParams(window.location.search).get("stage");
+    if (!stage) return;
+    autoNav = false;
+    document.body.classList.add("no-anim");
+    if (stage === "about") {
+      revealProfile();
+      rows.forEach(function (row) { row.classList.add("on"); });
+      logoRows.forEach(function (row) { row.classList.add("on"); });
+    } else if (stage === "init") {
+      showStage("init");
+      renderInit(62);
+      startDots();
+    }
+  })();
+
+  window.addEventListener("load", function () {
+    updateCursor();
+    setCursor(document.activeElement === input);
+  });
+</script>
+</body>
+</html>
