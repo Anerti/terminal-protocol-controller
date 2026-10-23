@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "anerti.menu",
+  "name": "Vault-Tec Pip-Boy menu",
+  "version": "1.0.0",
+  "author": "anerti",
+  "description": "Omarchy menu with the Vault-Tec logo and the section's Vault Boy on top",
+  "kinds": [
+    "menu"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "menu": "Menu.qml"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.menu"
+  }
+}

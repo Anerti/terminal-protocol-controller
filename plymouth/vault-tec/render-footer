@@ -1,0 +1,94 @@
+#!/bin/bash
+
+# Draw the boot screen's live text into a directory, as boot.html sets it:
+# - banner-1.png to banner-3.png, the lock stage's banner as the lock screen words it:
+#   OMARCHY VERSION <version> | KERNEL VERSION <version>, COPYRIGHT 2025 - <year> OMARCHY
+#   and - <HOSTNAME> -. Lines with nothing to say are left out and the last files are
+#   empty (1x1), which the script skips.
+# - footer.png, the init stage's footer: OMARCHY <version> · KERNEL <version> · <HOSTNAME>
+#   over COPYRIGHT 2025 - <year> OMARCHY, the band y 1000-1080 of the 1920x1080 grid.
+#
+# Usage: render-footer <out-dir> [kernel-release]
+# The kernel release defaults to the running one; the initcpio hook passes the one the
+# initramfs is being built for. Runs as root from mkinitcpio: reads only pacman's
+# database and /etc/hostname, needs magick.
+
+set -euo pipefail
+
+out=$1
+kernel=${2:-$(uname -r)}
+dir="$(cd "$(dirname "$0")" && pwd)"
+font="$dir/ShareTechMono-Regular.ttf"
+
+version=
+for package in omarchy-dev omarchy; do
+  version=$(pacman -Q "$package" 2>/dev/null | awk '{ print $2 }') && [[ -n $version ]] && break
+done
+version=${version%-*}
+kernel=${kernel%%-*}
+host=$(tr -d '[:space:]' </etc/hostname 2>/dev/null || true)
+year=$(date +%Y)
+
+parts=()
+[[ -n $version ]] && parts+=("OMARCHY $version")
+parts+=("KERNEL $kernel")
+[[ -n $host ]] && parts+=("$host")
+line=${parts[0]}
+for part in "${parts[@]:1}"; do line+="  ·  $part"; done
+line=${line^^}
+
+versions="KERNEL VERSION $kernel"
+[[ -n $version ]] && versions="OMARCHY VERSION $version | $versions"
+banner=("$versions" "COPYRIGHT 2025 - $year OMARCHY")
+[[ -n $host ]] && banner+=("- ${host^^} -")
+
+# .robco: 0.74rem Share Tech Mono, 0.24em tracking, line-height 1.8 from y 1019.4,
+# #2cae2e at .92 with a 6px rgba(44,174,46,.35) glow. Tracking also trails the last
+# letter, which moves the ink half a step left of centre.
+size=11.84
+track=2.84
+text() {
+  magick -background none -fill "#2cae2e" -font "$font" -pointsize "$size" -kerning "$track" \
+    label:"$1" -gravity center -extent "%[fx:w+24]x32" PNG32:-
+}
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+text "$line" >"$tmp/1.png"
+text "COPYRIGHT 2025 - $year OMARCHY" >"$tmp/2.png"
+
+place() {
+  local file=$1 cy=$2 w h
+  read -r w h < <(magick identify -format "%w %h" "$file")
+  printf '%s -geometry +%d+%d -composite ' "$file" \
+    "$(awk -v w="$w" -v t="$track" 'BEGIN { printf "%d", 960 - t / 2 - w / 2 + 0.5 }')" \
+    "$(awk -v h="$h" -v c="$cy" 'BEGIN { printf "%d", c - h / 2 + 0.5 }')"
+}
+
+# shellcheck disable=SC2046
+magick -size 1920x80 xc:none $(place "$tmp/1.png" 30.0) $(place "$tmp/2.png" 51.3) "$tmp/text.png"
+magick "$tmp/text.png" \
+  \( +clone -channel A -blur 0x3 -evaluate multiply 0.35 +channel \) \
+  -swap 0,1 -compose over -composite \
+  -channel A -evaluate multiply 0.92 +channel \
+  PNG32:"$tmp/footer.png"
+
+# The lock screen's TermText: 20px, .1em tracking, an 8px glow at .45. Each line is
+# centred in 13px a character plus 48 across, which the script reads its length back
+# from, and keeps a fixed height centred on its line box.
+for i in 1 2 3; do
+  if ((i <= ${#banner[@]})); then
+    magick -background none -fill "#2cae2e" -font "$font" -pointsize 20 -kerning 2 \
+      label:"${banner[i - 1]}" -gravity center -extent "%[fx:w+48]x56" \
+      \( +clone -channel A -blur 0x4 -evaluate multiply 0.45 +channel \) \
+      -swap 0,1 -compose over -composite \
+      -define trim:edges=east,west -trim +repage \
+      -extent "$((${#banner[i - 1]} * 13 + 48))x56" PNG32:"$tmp/banner-$i.png"
+  else
+    magick -size 1x1 xc:none PNG32:"$tmp/banner-$i.png"
+  fi
+done
+
+for file in footer.png banner-1.png banner-2.png banner-3.png; do
+  cp "$tmp/$file" "$out/$file"
+done

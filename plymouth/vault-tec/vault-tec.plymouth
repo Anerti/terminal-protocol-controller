@@ -1,0 +1,9 @@
+[Plymouth Theme]
+Name=Vault-Tec
+Description=Dark Terminal Protocol boot screen: the Omarchy terminal passphrase prompt, then INITIALIZING SYSTEM.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/vault-tec
+ScriptFile=/usr/share/plymouth/themes/vault-tec/vault-tec.script
+ConsoleLogBackgroundColor=0x020a05

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "anerti.workspaces",
+  "name": "Vault-Tec workspaces",
+  "version": "1.0.0",
+  "author": "anerti",
+  "description": "Vault-Tec brand wedge with slanted workspace pills on either side",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Workspaces.qml"
+  },
+  "barWidget": {
+    "displayName": "Vault-Tec workspaces",
+    "description": "Brand wedge (opens the menu) straddled by workspace pills",
+    "category": "Compositor",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.workspaces"
+  }
+}

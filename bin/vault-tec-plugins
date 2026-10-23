@@ -1,0 +1,145 @@
+#!/bin/bash
+
+# Usage: vault-tec-plugins [install|sync|uninstall|enable|disable] [plugin-id...]   (default: install, every plugin)
+#        vault-tec-plugins place-bar vault | place-bar builtin [on|off: the Pip-Boy menu]
+#        vault-tec-plugins restart
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DEST="$HOME/.config/omarchy/plugins"
+
+plugin_ids() {
+  if (($#)); then
+    printf '%s\n' "$@"
+  else
+    for dir in "$ROOT"/plugins/*/; do basename "$dir"; done
+  fi
+}
+
+plugin_json() {
+  omarchy plugin list --json 2>/dev/null || echo '[]'
+}
+
+enabled() {
+  jq -e --arg id "$2" 'any(.[]; .id == $id and .enabled)' <<<"$1" >/dev/null
+}
+
+restart_shell() {
+  omarchy restart shell || return
+  for _ in {1..20}; do
+    sleep 0.5
+    [[ $(plugin_json) != "[]" ]] && return
+  done
+  echo "The shell did not come back after its restart" >&2
+  return 1
+}
+
+install() {
+  mkdir -p "$DEST"
+  local fresh=() changed=0 id
+  for id in $(plugin_ids "$@"); do
+    [[ -d $ROOT/plugins/$id ]] || { echo "No plugin $id in $ROOT/plugins" >&2; exit 1; }
+  done
+  for id in $(plugin_ids "$@"); do
+    [[ -e $DEST/$id ]] || fresh+=("$id")
+    [[ -n $(rsync -a --delete --itemize-changes "$ROOT/plugins/$id/" "$DEST/$id/") ]] && changed=1
+  done
+  ((changed)) || return 0
+  restart_shell || exit 1
+  for id in "${fresh[@]}"; do omarchy plugin enable "$id"; done
+}
+
+edited() {
+  local newest
+  newest=$(find "$ROOT/plugins/$1" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+  [[ -d $DEST/$1 && -n $(find "$DEST/$1" -type f -newer "$newest" -print -quit) ]]
+}
+
+sync() {
+  mkdir -p "$DEST"
+  local json changed=0 restart=0 id
+  json=$(plugin_json)
+  for id in $(plugin_ids "$@"); do
+    if edited "$id"; then
+      echo "Keeping $id: $DEST/$id has newer edits than $ROOT/plugins/$id" >&2
+      continue
+    fi
+    [[ -n $(rsync -a --delete --itemize-changes "$ROOT/plugins/$id/" "$DEST/$id/") ]] || continue
+    changed=1
+    enabled "$json" "$id" && restart=1
+  done
+  if ((restart)); then
+    restart_shell || exit 1
+  elif ((changed)); then
+    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+  fi
+}
+
+uninstall() {
+  local removed=0 id
+  for id in $(plugin_ids "$@"); do
+    if [[ -e $DEST/$id ]]; then
+      omarchy plugin remove "$id" --yes
+      removed=1
+    fi
+  done
+  ((removed)) || return 0
+  omarchy restart shell
+}
+
+enable_plugins() {
+  local json id
+  json=$(plugin_json)
+  for id in $(plugin_ids "$@"); do
+    enabled "$json" "$id" || omarchy plugin enable "$id" || exit 1
+  done
+}
+
+disable_plugins() {
+  local json id source
+  json=$(plugin_json)
+  for id in $(plugin_ids "$@"); do
+    ! enabled "$json" "$id" || omarchy plugin disable "$id" || exit 1
+  done
+  json=$(plugin_json)
+  for id in $(plugin_ids "$@"); do
+    source=$(jq -r '.omarchy.clonedFrom // ""' "$ROOT/plugins/$id/manifest.json")
+    [[ -z $source ]] || enabled "$json" "$source" || omarchy plugin enable "$source" || exit 1
+  done
+}
+
+place_bar() {
+  local layout="$1" pipboy="${2:-off}"
+  [[ $layout == vault || $layout == builtin ]] || usage
+  (
+    source omarchy-shell-config
+    commit "$NORMALIZE
+      | ((.bar.layout.left + .bar.layout.center)
+          | map(select(.id | IN(\"omarchy.menu\", \"omarchy.workspaces\", \"anerti.workspaces\") | not))) as \$rest
+      | if \$layout == \"vault\" then
+          .bar.layout.left = \$rest
+          | .bar.layout.center = [{id: \"anerti.workspaces\"}]
+          | .bar.centerAnchor = \"anerti.workspaces\"
+        else
+          .bar.layout.left = (if \$pipboy == \"on\" then [] else [{id: \"omarchy.menu\"}] end)
+            + [{id: \"omarchy.workspaces\"}]
+          | .bar.layout.center = \$rest
+          | .bar.centerAnchor = (first(\$rest[].id | select(endswith(\".clock\"))) // \"\")
+        end" --arg layout "$layout" --arg pipboy "$pipboy"
+  )
+}
+
+usage() {
+  echo "Usage: vault-tec-plugins [install|sync|uninstall|enable|disable] [plugin-id...] | place-bar <vault|builtin [on|off]> | restart" >&2
+  exit 1
+}
+
+case "${1:-install}" in
+  install) shift; install "$@" ;;
+  sync) shift; sync "$@" ;;
+  uninstall) shift; uninstall "$@" ;;
+  enable) shift; enable_plugins "$@" ;;
+  disable) shift; disable_plugins "$@" ;;
+  place-bar) place_bar "${2:-}" "${3:-off}" ;;
+  restart) restart_shell ;;
+  *) usage ;;
+esac

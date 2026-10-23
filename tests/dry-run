@@ -1,55 +1,88 @@
 #!/bin/bash
 
-# Run every switch of bin/terminal-protocol-controller against a stub theme and stub
-# omarchy, gsettings and plymouth commands, and check which theme steps each one calls.
-# It never touches the desktop, so it is safe to run at any time.
-#
 # Usage: tests/dry-run
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-export TERMINAL_PROTOCOL_THEME_DIR="$TMP/theme" XDG_CACHE_HOME="$TMP/cache" PATH="$TMP/stubs:$PATH"
+CTL="$TMP/controller"
+export HOME="$TMP/home" TERMINAL_PROTOCOL_THEME_DIR="$TMP/theme" XDG_CACHE_HOME="$TMP/cache" PATH="$TMP/stubs:$PATH"
 LOG="$TMP/steps"
 
-mkdir -p "$TMP/theme/bin" "$TMP/stubs" "$TMP/theme/plugins/"{anerti.menu,anerti.lock,anerti.clock,anerti.workspaces}
-printf '#!/bin/bash\nshift; echo "$*" >>%q\n' "$LOG" >"$TMP/theme/full-theme.sh"
-printf '#!/bin/bash\n[[ $1 == status ]] && echo off || echo "crt $1" >>%q\n' "$LOG" >"$TMP/theme/bin/vault-tec-crt"
-cat >"$TMP/stubs/omarchy" <<'STUB'
-#!/bin/bash
-echo '[{"id":"anerti.menu","enabled":false},{"id":"anerti.lock","enabled":true},{"id":"anerti.clock","enabled":true},{"id":"anerti.workspaces","enabled":true}]'
-STUB
+mkdir -p "$TMP/theme" "$TMP/stubs" "$CTL/bin"
+touch "$TMP/theme/colors.toml"
+cp "$ROOT/bin/terminal-protocol-controller" "$CTL/bin/"
+ln -s "$ROOT/plugins" "$CTL/plugins"
+for dir in "$ROOT"/plugins/*/; do mkdir -p "$HOME/.config/omarchy/plugins/$(basename "$dir")"; done
+printf '#!/bin/bash\necho "$*" >>%q\n' "$LOG" >"$CTL/bin/vault-tec-plugins"
+printf '#!/bin/bash\n[[ $1 == status ]] && echo off || echo "crt $1" >>%q\n' "$LOG" >"$CTL/bin/vault-tec-crt"
+BAR=$(for dir in "$ROOT"/plugins/*/; do basename "$dir"; done | grep -vx 'anerti.menu\|anerti.lock' | paste -sd ' ')
+printf '#!/bin/bash\n[[ $1 == restart ]] && { echo "omarchy $*" >>%q; exit; }\necho %q\n' "$LOG" "$(printf '%s\n' anerti.menu anerti.lock $BAR |
+  jq -cRn '[inputs | {id: ., enabled: (. != "anerti.menu")}]')" >"$TMP/stubs/omarchy"
 printf '#!/bin/bash\necho omarchy\n' >"$TMP/stubs/plymouth-set-default-theme"
 printf '#!/bin/bash\necho "%s"\n' "'Adwaita'" >"$TMP/stubs/gsettings"
-printf '#!/bin/bash\necho "vault-tec-cursor $1" >>%q\n' "$LOG" >"$TMP/theme/bin/vault-tec-cursor"
-printf '#!/bin/bash\necho "terminal $*" >>%q\n' "$LOG" >"$TMP/stubs/omarchy-launch-floating-terminal-with-presentation"
-chmod +x "$TMP/theme/bin/"* "$TMP/stubs/"*
+printf '#!/bin/bash\necho "vault-tec-cursor $1" >>%q\n' "$LOG" >"$CTL/bin/vault-tec-cursor"
+printf '#!/bin/bash\necho "terminal $*" >>%q\n(sleep 0.2; bash -c "$*") &\n' "$LOG" >"$TMP/stubs/omarchy-launch-floating-terminal-with-presentation"
+printf '#!/bin/bash\nsleep 1; echo "vault-tec-plymouth $1" >>%q\n' "$LOG" >"$CTL/bin/vault-tec-plymouth"
+chmod +x "$TMP/stubs/"* "$CTL/bin/"*
 
 failed=0
 expect() {
   local args="$1" want="$2" got
   : >"$LOG"
-  "$ROOT/bin/terminal-protocol-controller" $args
+  "$CTL/bin/terminal-protocol-controller" $args
   got=$(paste -sd '|' "$LOG")
   if [[ $got == "$want" ]]; then echo "ok   $args"; else echo "FAIL $args: got '$got', want '$want'"; failed=1; fi
 }
 
-[[ $("$ROOT/bin/terminal-protocol-controller" status) == '{"installed":true,"busy":false,"bar":true,"menu":false,"cursor":false,"crt":false,"unlock":true,"login":false}' ]] &&
-  echo "ok   status" || { echo "FAIL status: $("$ROOT/bin/terminal-protocol-controller" status)"; failed=1; }
-expect "set menu on" "install_plugins anerti.menu|set_plugins on anerti.menu|place_bar vault|restart_shell"
-expect "set bar off" "set_plugins off anerti.clock anerti.workspaces|enable_builtins anerti.clock anerti.workspaces|place_bar vault|restart_shell"
-expect "set unlock off" "set_plugins off anerti.lock|enable_builtins anerti.lock|restart_shell"
-expect "set cursor on" "set_cursors"
+[[ $("$CTL/bin/terminal-protocol-controller" status) == '{"installed":true,"busy":false,"bar":true,"menu":false,"cursor":false,"crt":false,"unlock":true,"login":false}' ]] &&
+  echo "ok   status" || { echo "FAIL status: $("$CTL/bin/terminal-protocol-controller" status)"; failed=1; }
+expect "set menu on" "install anerti.menu|enable anerti.menu|place-bar vault|restart"
+expect "set bar off" "disable $BAR|place-bar vault|restart"
+expect "set unlock off" "disable anerti.lock|restart"
+expect "set cursor on" "vault-tec-cursor install"
 expect "set cursor off" "vault-tec-cursor uninstall"
 expect "set crt on" "crt on"
-expect "set login on" "terminal $TMP/theme/bin/vault-tec-plymouth install"
-expect "set login off" "terminal $TMP/theme/bin/vault-tec-plymouth uninstall"
+expect "set login on" "terminal flock $TMP/cache/terminal-protocol-controller/login.lock $CTL/bin/vault-tec-plymouth install|vault-tec-plymouth install"
+expect "set login off" "terminal flock $TMP/cache/terminal-protocol-controller/login.lock $CTL/bin/vault-tec-plymouth uninstall|vault-tec-plymouth uninstall"
 
-printf '#!/bin/bash\necho clone >>%q; sleep 0.3; mkdir -p "$5"; touch "$5/full-theme.sh"\n' "$LOG" >"$TMP/stubs/git"
+mkdir -p "$HOME/.local/share/icons/VaultTec" "$HOME/.config/omarchy/hooks/"{theme-set,post-boot}.d
+touch "$HOME/.config/omarchy/hooks/"{theme-set,post-boot}.d/vault-tec-cursor
+[[ $("$CTL/bin/terminal-protocol-controller" status | jq .cursor) == true ]] &&
+  echo "ok   status cursor installed" || { echo "FAIL status cursor installed"; failed=1; }
+
+rmdir "$HOME/.config/omarchy/plugins/anerti.menu"
+[[ $("$CTL/bin/terminal-protocol-controller" status) == '{"installed":false,"busy":false}' ]] &&
+  echo "ok   status without a plugin" || { echo "FAIL status without a plugin: $("$CTL/bin/terminal-protocol-controller" status)"; failed=1; }
+printf '#!/bin/bash\necho clone >>%q; sleep 0.3; mkdir -p "$5"; touch "$5/colors.toml"\n' "$LOG" >"$TMP/stubs/git"
 chmod +x "$TMP/stubs/git"
 : >"$LOG"
-TERMINAL_PROTOCOL_THEME_DIR="$TMP/fresh" "$ROOT/bin/terminal-protocol-controller" install &
-TERMINAL_PROTOCOL_THEME_DIR="$TMP/fresh" "$ROOT/bin/terminal-protocol-controller" install
+TERMINAL_PROTOCOL_THEME_DIR="$TMP/fresh" "$CTL/bin/terminal-protocol-controller" install &
+TERMINAL_PROTOCOL_THEME_DIR="$TMP/fresh" "$CTL/bin/terminal-protocol-controller" install
 wait
-[[ $(paste -sd '|' "$LOG") == clone ]] && echo "ok   install twice" || { echo "FAIL install twice: $(paste -sd '|' "$LOG")"; failed=1; }
+[[ $(paste -sd '|' "$LOG") == "clone|sync|sync" ]] && echo "ok   install twice" || { echo "FAIL install twice: $(paste -sd '|' "$LOG")"; failed=1; }
+
+mkdir -p "$TMP/broken/.git"
+: >"$LOG"
+TERMINAL_PROTOCOL_THEME_DIR="$TMP/broken" "$CTL/bin/terminal-protocol-controller" install
+[[ -f $TMP/broken/colors.toml && -d $(echo "$TMP"/broken.broken-*)/.git && ! -e $TMP/broken.part ]] &&
+  echo "ok   install over a broken theme" || { echo "FAIL install over a broken theme: $(ls "$TMP")"; failed=1; }
+
+printf '#!/bin/bash\necho "omarchy-shell $*" >>%q\n' "$LOG" >"$TMP/stubs/omarchy-shell"
+chmod +x "$TMP/stubs/omarchy-shell"
+INSTALLED="$HOME/.config/omarchy/plugins"
+sync_log() {
+  : >"$LOG"
+  "$ROOT/bin/vault-tec-plugins" sync 2>/dev/null
+  paste -sd '|' "$LOG"
+}
+[[ $(sync_log) == "omarchy restart shell" && -f $INSTALLED/anerti.menu/manifest.json ]] &&
+  echo "ok   sync fills" || { echo "FAIL sync fills"; failed=1; }
+[[ -z $(sync_log) ]] && echo "ok   sync again" || { echo "FAIL sync again"; failed=1; }
+touch -d 2000-01-01 "$INSTALLED/anerti.menu/stray"
+[[ $(sync_log) == "omarchy-shell shell rescanPlugins" && ! -e $INSTALLED/anerti.menu/stray ]] &&
+  echo "ok   sync updates a plugin that is off" || { echo "FAIL sync updates a plugin that is off"; failed=1; }
+echo edit >>"$INSTALLED/anerti.lock/manifest.json"
+[[ -z $(sync_log) && $(tail -1 "$INSTALLED/anerti.lock/manifest.json") == edit ]] &&
+  echo "ok   sync keeps an edited copy" || { echo "FAIL sync keeps an edited copy"; failed=1; }
 exit "$failed"

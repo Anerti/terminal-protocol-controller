@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Usage: vault-tec-cursor [theme-slug]
+
+THEME="${1:-$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)}"
+SAVED="$HOME/.local/state/vault-tec/cursor-previous"
+SIZE="${XCURSOR_SIZE:-24}"
+
+current=$(gsettings get org.gnome.desktop.interface cursor-theme 2>/dev/null | tr -d "'")
+
+use() {
+  gsettings set org.gnome.desktop.interface cursor-theme "$1"
+  hyprctl setcursor "$1" "$SIZE" >/dev/null
+}
+
+if [[ $THEME == *terminal-protocol* && -d $HOME/.local/share/icons/VaultTec ]]; then
+  if [[ $current != VaultTec ]]; then
+    mkdir -p "$(dirname "$SAVED")"
+    echo "${current:-default}" > "$SAVED"
+  fi
+  use VaultTec
+elif [[ $current == VaultTec ]]; then
+  use "$(cat "$SAVED" 2>/dev/null || echo default)"
+fi

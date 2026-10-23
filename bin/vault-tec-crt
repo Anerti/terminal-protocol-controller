@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Toggle the Vault-Tec CRT screen shader (scanlines + vignette, assets/crt.frag). On writes a
+# Hyprland toggle into Omarchy's toggles folder, which Omarchy loads on every reload, so the
+# effect works under any theme, however it was installed: a theme installed from git cannot
+# supply Lua. The toggle skips the shader if this checkout has gone, so a removed controller
+# leaves no broken screen_shader behind.
+# Usage: vault-tec-crt [on|off|toggle|status]   (default: toggle)
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TOGGLE="$HOME/.local/state/omarchy/toggles/hypr/vault-tec-crt.lua"
+
+notify() {
+  if command -v omarchy-notification-send >/dev/null; then
+    omarchy-notification-send "$1" -t 1500
+  fi
+}
+
+enable() {
+  mkdir -p "$(dirname "$TOGGLE")"
+  cat >"$TOGGLE" <<LUA
+-- Written by vault-tec-crt (Terminal Protocol Controller): its CRT screen shader.
+local shader = "$ROOT/assets/crt.frag"
+local file = io.open(shader, "r")
+
+if file then
+  file:close()
+  hl.config({
+    decoration = {
+      screen_shader = shader,
+    },
+  })
+end
+LUA
+  hyprctl reload >/dev/null
+  notify "CRT: ON"
+}
+
+disable() {
+  rm -f "$TOGGLE"
+  hyprctl reload >/dev/null
+  notify "CRT: OFF"
+}
+
+case "${1:-toggle}" in
+  on) enable ;;
+  off) disable ;;
+  toggle) if [[ -f $TOGGLE ]]; then disable; else enable; fi ;;
+  status) if [[ -f $TOGGLE ]]; then echo on; else echo off; fi ;;
+  *)
+    echo "Usage: vault-tec-crt [on|off|toggle|status]" >&2
+    exit 1
+    ;;
+esac
